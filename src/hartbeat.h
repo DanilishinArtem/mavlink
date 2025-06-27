@@ -21,7 +21,7 @@ void send_heartbeat_task() {
             1,           // system_id (оставляем 1)
             1,           // component_id (меняем на 1 — autopilot)
             &msg,
-            MAV_TYPE_GENERIC,
+            MAV_TYPE_QUADROTOR,
             MAV_AUTOPILOT_GENERIC,
             MAV_MODE_MANUAL_ARMED,
             0,

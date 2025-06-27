@@ -15,10 +15,15 @@
 #define I2C_MASTER_SCL_IO 8
 #define I2C_MASTER_FREQ_HZ 100000
 #define MPU9250_ADDR 0x68
-#define I2C_TIMEOUT_MS 5000
+#define I2C_TIMEOUT_MS 100
 
 #define I2C_MASTER_TX_BUF_DISABLE 0
 #define I2C_MASTER_RX_BUF_DISABLE 0
+
+#define AK8963_ADDR        0x0C
+#define MPU9250_INT_PIN_CFG  0x37
+#define AK8963_CNTL1         0x0A
+#define AK8963_ASAX          0x10
 
 
 // Инициализация I2C с улучшенной обработкой ошибок
@@ -45,55 +50,47 @@ esp_err_t i2c_master_init() {
 }
 
 // Функция записи с правильной обработкой ACK
-esp_err_t mpu9250_write_byte(uint8_t reg, uint8_t data) {
+
+esp_err_t i2c_write_byte(uint8_t device_addr, uint8_t reg_addr, uint8_t data) {
     i2c_cmd_handle_t cmd = i2c_cmd_link_create();
     i2c_master_start(cmd);
-    
-    i2c_master_write_byte(cmd, (MPU9250_ADDR << 1) | I2C_MASTER_WRITE, true);
-    i2c_master_write_byte(cmd, reg, true);
-    i2c_master_write_byte(cmd, data, true);
-    i2c_master_stop(cmd);
 
-    esp_err_t ret = i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, pdMS_TO_TICKS(100));
+    i2c_master_write_byte(cmd, (device_addr << 1) | I2C_MASTER_WRITE, true);
+    i2c_master_write_byte(cmd, reg_addr, true);
+    i2c_master_write_byte(cmd, data, true);
+
+    i2c_master_stop(cmd);
+    esp_err_t ret = i2c_master_cmd_begin(I2C_NUM_0, cmd, pdMS_TO_TICKS(I2C_TIMEOUT_MS));
     i2c_cmd_link_delete(cmd);
-    
-    if (ret != ESP_OK) {
-        ESP_LOGE("MPU", "Write error [0x%02X]: %s", reg, esp_err_to_name(ret));
-    }
     return ret;
 }
 
-esp_err_t mpu9250_read_bytes(uint8_t reg, uint8_t* data, size_t len) {
+esp_err_t i2c_read_bytes(uint8_t device_addr, uint8_t reg_addr, uint8_t* data, size_t length) {
     i2c_cmd_handle_t cmd = i2c_cmd_link_create();
     
-    // Фаза записи (установка указателя регистра)
+    // Запись адреса регистра
     i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (MPU9250_ADDR << 1) | I2C_MASTER_WRITE, true);
-    i2c_master_write_byte(cmd, reg, true);
+    i2c_master_write_byte(cmd, (device_addr << 1) | I2C_MASTER_WRITE, true);
+    i2c_master_write_byte(cmd, reg_addr, true);
     
-    // Фаза чтения
+    // Чтение данных
     i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (MPU9250_ADDR << 1) | I2C_MASTER_READ, true);
-    
-    if (len > 1) {
-        i2c_master_read(cmd, data, len - 1, I2C_MASTER_ACK);
+    i2c_master_write_byte(cmd, (device_addr << 1) | I2C_MASTER_READ, true);
+    if (length > 1) {
+        i2c_master_read(cmd, data, length - 1, I2C_MASTER_ACK);
     }
-    i2c_master_read_byte(cmd, data + len - 1, I2C_MASTER_LAST_NACK);
+    i2c_master_read_byte(cmd, data + length - 1, I2C_MASTER_NACK);
     
     i2c_master_stop(cmd);
-    esp_err_t ret = i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, pdMS_TO_TICKS(I2C_TIMEOUT_MS));
+    esp_err_t ret = i2c_master_cmd_begin(I2C_NUM_0, cmd, pdMS_TO_TICKS(I2C_TIMEOUT_MS));
     i2c_cmd_link_delete(cmd);
-    
-    if (ret != ESP_OK) {
-        ESP_LOGE("MPU", "Read error [0x%02X]: %s", reg, esp_err_to_name(ret));
-    }
     return ret;
 }
 
 // Функция чтения WHO_AM_I для диагностики
 uint8_t mpu9250_read_whoami() {
     uint8_t data = 0;
-    if (mpu9250_read_bytes(0x75, &data, 1) == ESP_OK) {
+    if (i2c_read_bytes(MPU9250_ADDR, 0x75, &data, 1) == ESP_OK) {
         printf("WHO_AM_I: 0x%02X\n", data);
     } else {
         printf("Failed to read WHO_AM_I\n");
@@ -119,87 +116,120 @@ void ping_esp(){
     }
 }
 
-void mpu9250_init() {
-    // Добавляем задержку для инициализации устройства
-    ping_esp();
-    // Пробуждаем устройство
-    esp_err_t err = mpu9250_write_byte(0x6B, 0x00);
-    if (err == ESP_OK) {
-        printf("✅ MPU9250 wake-up successful\n");
-        // Проверяем идентификатор устройства
-        uint8_t id = mpu9250_read_whoami();
-        if (id == 0x71) {
-            printf("✅ Valid MPU9250 detected (ID: 0x%02X)\n", id);
-        } else {
-            printf("⚠️ Unknown device ID: 0x%02X\n", id);
-        }
+
+uint8_t ak8963_read_whoami() {
+    uint8_t data = 0;
+    if (i2c_read_bytes(AK8963_ADDR, 0x00, &data, 1) == ESP_OK) {
+        printf("🔍 AK8963 WHO_AM_I: 0x%02X\n", data);
     } else {
-        printf("❌ Failed to wake up MPU9250: %s\n", esp_err_to_name(err));
-        return;
+        printf("❌ Failed to read WHO_AM_I from AK8963\n");
     }
-    
-    // Настройка акселерометра и гироскопа
-    mpu9250_write_byte(0x1C, 0x00);  // ±2g
-    mpu9250_write_byte(0x1B, 0x00);  // ±250°/s
-    vTaskDelay(pdMS_TO_TICKS(100));
+    return data;
 }
 
-// void mpu9250_read_test() {
-//     ping_esp();
-//     uint8_t buffer[14];  // ACCEL(6) + TEMP(2) + GYRO(6)
-//     if (mpu9250_read_bytes(0x3B, buffer, 14) == ESP_OK) {
-//         int16_t ax = (buffer[0] << 8) | buffer[1];
-//         int16_t ay = (buffer[2] << 8) | buffer[3];
-//         int16_t az = (buffer[4] << 8) | buffer[5];
-
-//         int16_t gx = (buffer[8] << 8) | buffer[9];
-//         int16_t gy = (buffer[10] << 8) | buffer[11];
-//         int16_t gz = (buffer[12] << 8) | buffer[13];
-
-//         printf("📈 Accel: X=%d Y=%d Z=%d | Gyro: X=%d Y=%d Z=%d\n", ax, ay, az, gx, gy, gz);
-//     } else {
-//         printf("❌ Failed to read MPU9250 data\n");
-//     }
-// }
-
-void mpu9250_read_test(){
-    static MadgwickFilter filter(0.1f); // β = 0.1 (подберите при необходимости)
-    static uint64_t last_time_us = 0;
+// Включить bypass через регистр 0x37 на MPU9250
+esp_err_t mpu9250_enable_bypass() {
     ping_esp();
-    uint8_t buffer[14];  // ACCEL(6) + TEMP(2) + GYRO(6)
-    if (mpu9250_read_bytes(0x3B, buffer, 14) == ESP_OK) {
-        // Распаковка
-        int16_t ax = (buffer[0] << 8) | buffer[1];
-        int16_t ay = (buffer[2] << 8) | buffer[3];
-        int16_t az = (buffer[4] << 8) | buffer[5];
-        int16_t gx = (buffer[8] << 8) | buffer[9];
-        int16_t gy = (buffer[10] << 8) | buffer[11];
-        int16_t gz = (buffer[12] << 8) | buffer[13];
+    return i2c_write_byte(MPU9250_ADDR, 0x37, 0x02); // INT_PIN_CFG: BYPASS_EN = 1
+}
 
-        // Конвертация: raw → физические величины
-        float axf = ax / 16384.0f;  // ±2g
-        float ayf = ay / 16384.0f;
-        float azf = az / 16384.0f;
-        float gxf = gx / 131.0f;    // ±250 °/s
-        float gyf = gy / 131.0f;
-        float gzf = gz / 131.0f;
+esp_err_t ak8963_init() {
+    esp_err_t err;
 
-        // Магнитометр (опционально — пока передаём нули)
-        float mx = 0.0f, my = 0.0f, mz = 0.0f;
+    // Включаем bypass для доступа к магнитометру
+    err = mpu9250_enable_bypass();
+    if (err != ESP_OK) return err;
 
-        // Расчёт времени между вызовами
-        uint64_t now = esp_timer_get_time(); // µs
-        float dt = (last_time_us == 0) ? 0.0001f : (now - last_time_us) / 1e6f;
-        last_time_us = now;
+    uint8_t whoami = ak8963_read_whoami();
+    if (whoami != 0x48) {
+        printf("⚠️  Unexpected AK8963 WHO_AM_I: 0x%02X (expected 0x48)\n", whoami);
+        return ESP_FAIL;
+    }
 
-        // Обновление фильтра
-        filter.update(axf, ayf, azf, gxf, gyf, gzf, mx, my, mz, dt);
+    // 1. Переводим в FUSE ROM access mode
+    err = i2c_write_byte(AK8963_ADDR, AK8963_CNTL1, 0x0F);
+    if (err != ESP_OK) return err;
+    // vTaskDelay(pdMS_TO_TICKS(20));
 
-        // Вывод ориентации
-        printf("🎯 Pitch: %.2f° | Roll: %.2f° | Yaw: %.2f°\n",
-               filter.getPitch(), filter.getRoll(), filter.getYaw());
+    // 2. Читаем коэффициенты ASAX/ASAY/ASAZ (можно сохранить, как в MicroPython)
+        // def _read(self, buf, memaddr, addr):
+    //     self._mpu_i2c.readfrom_mem_into(addr, memaddr, buf)
+    uint8_t asa[3];
+    err = i2c_read_bytes(AK8963_ADDR, AK8963_ASAX, asa, 3);
+    if (err == ESP_OK) {
+        printf("AK8963 ASA: X=%d, Y=%d, Z=%d\n", asa[0], asa[1], asa[2]);
     } else {
-        printf("❌ Failed to read MPU9250 data\n");
+        printf("❌ Не удалось прочитать коэффициенты ASA\n");
+        return err;
+    }
+
+    // // 3. Power-down перед основным режимом
+    err = i2c_write_byte(AK8963_ADDR, AK8963_CNTL1, 0x00);
+
+    // 4. Включаем Continuous measurement mode 2 (16-bit output)
+    err = i2c_write_byte(AK8963_ADDR, AK8963_CNTL1, 0x16);
+    // // vTaskDelay(pdMS_TO_TICKS(50));
+    // if (err == ESP_OK) {
+    //     printf("✅ AK8963 инициализирован в режим 100 Гц (0x16)\n");
+    // }
+    return err;
+}
+
+void mpu9250_init() {
+    ping_esp();
+
+    // Сброс MPU9250
+    i2c_write_byte(MPU9250_ADDR, 0x6B, 0x80);
+    // Пробуждаем MPU9250
+    esp_err_t err = i2c_write_byte(MPU9250_ADDR, 0x6B, 0x00);
+    if (err == ESP_OK) {
+        printf("✅ MPU9250 пробуждён\n");
+
+        uint8_t id = mpu9250_read_whoami();
+        if (id == 0x71) {
+            printf("✅ Обнаружен MPU9250 (ID: 0x%02X)\n", id);
+        } else {
+            printf("⚠️ MPU9250: неизвестный ID = 0x%02X\n", id);
+        }
+    } else {
+        printf("❌ Ошибка пробуждения MPU9250: %s\n", esp_err_to_name(err));
+        return;
+    }
+
+    // Настройка диапазонов акселерометра и гироскопа
+    i2c_write_byte(MPU9250_ADDR, 0x1C, 0x00);  // ±2g
+    i2c_write_byte(MPU9250_ADDR, 0x1B, 0x00);  // ±250 °/s
+
+    // Включаем bypass для AK8963
+    i2c_write_byte(MPU9250_ADDR, MPU9250_INT_PIN_CFG, 0x02);
+
+    // Инициализируем магнитометр AK8963
+    if (ak8963_init() == ESP_OK) {
+        printf("✅ Магнитометр AK8963 инициализирован успешно\n");
+    } else {
+        printf("❌ Не удалось инициализировать магнитометр AK8963\n");
+    }
+}
+
+void mpu9250_read_test() {
+    // static MadgwickFilter filter(0.1f);
+
+    float mx = 0.0f, my = 0.0f, mz = 0.0f;
+    // err = i2c_read_bytes(AK8963_ADDR, AK8963_ASAX, asa, 3);
+    ping_esp();
+    uint8_t mag[6];
+    if (i2c_read_bytes(MPU9250_ADDR, 0x10, mag, 6) == ESP_OK) {
+        int16_t mx_raw = (mag[1] << 8) | mag[0];
+        int16_t my_raw = (mag[3] << 8) | mag[2];
+        int16_t mz_raw = (mag[5] << 8) | mag[4];
+
+        mx = mx_raw * 0.15f;
+        my = my_raw * 0.15f;
+        mz = mz_raw * 0.15f;
+
+        printf("🧲 mx: %.2f, my: %.2f, mz: %.2f\n", mx, my, mz);
+    } else {
+        printf("❌ Ошибка чтения магнитометра или переполнение\n");
     }
 }
 
