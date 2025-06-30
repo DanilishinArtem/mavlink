@@ -161,24 +161,6 @@ public:
         return ret;
     }
 
-    void ping(){
-        bool found = false;
-        for (uint8_t addr = 1; addr < 127; addr++) {
-            i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-            i2c_master_start(cmd);
-            i2c_master_write_byte(cmd, (addr << 1) | I2C_MASTER_WRITE, true);
-            i2c_master_stop(cmd);
-            esp_err_t err = i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, pdMS_TO_TICKS(100));
-            i2c_cmd_link_delete(cmd);
-            if (err == ESP_OK) {
-                found = true;
-            }
-        }
-        if (!found) {
-            printf("❌ MPU9250 NOT found. Check wiring, power, and pins.\n");
-        }    
-    }
-
     static int16_t bytes_to_int(uint8_t msb, uint8_t lsb) {
         int16_t value = (lsb << 8) | msb;
         if (msb & 0x80) value -= 0x10000;
@@ -192,11 +174,10 @@ private:
     Vector3d gyro;
 
     void update_accel() {
-        ping();
         uint8_t buf[6];
         esp_err_t ret = read_func(buf, 0x3B, mpu_addr, 6);
         if (ret != ESP_OK) {
-            printf("❌ failed Update_accel function\n");
+            printf("[INFO] failed Update_accel function\n");
         }
         // int16_t x = (buf[0] << 8) | buf[1];
         // int16_t y = (buf[2] << 8) | buf[3];
@@ -212,11 +193,10 @@ private:
     }
 
     void update_gyro() {
-        ping();
         uint8_t buf[6];
         esp_err_t ret = read_func(buf, 0x43, mpu_addr, 6);
         if (ret != ESP_OK) {
-            printf("❌ failed Update_gyro function\n");
+            printf("[INFO] failed Update_gyro function\n");
         }
         // int16_t x = (buf[0] << 8) | buf[1];
         // int16_t y = (buf[2] << 8) | buf[3];

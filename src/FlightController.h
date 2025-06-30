@@ -80,9 +80,6 @@ public:
                       data.gx, data.gy, data.gz,
                       data.mx, data.my, data.mz,
                       data.dt);
-        // printf("[FC] Accel: X=%.2f Y=%.2f Z=%.2f | Gyro: X=%.2f Y=%.2f Z=%.2f | Mag: X=%.2f Y=%.2f Z=%.2f\n",
-        //     data.ax, data.ay, data.az, data.gx, data.gy, data.gz, data.mx, data.my, data.mz);
-        vTaskDelay(pdMS_TO_TICKS(60));
     }
 
     std::tuple<float, float, float> getEuler() const {
