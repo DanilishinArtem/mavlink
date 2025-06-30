@@ -61,8 +61,8 @@ private:
             return;
         }
         
-        int16_t y_raw = bytes_to_int(data[1], data[0]);
-        int16_t x_raw = bytes_to_int(data[3], data[2]);
+        int16_t x_raw = bytes_to_int(data[1], data[0]);
+        int16_t y_raw = bytes_to_int(data[3], data[2]);
         int16_t z_raw = bytes_to_int(data[5], data[4]);
 
         float scale = 0.15f;

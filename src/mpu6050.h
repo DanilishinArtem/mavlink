@@ -214,7 +214,7 @@ private:
     void update_gyro() {
         ping();
         uint8_t buf[6];
-        esp_err_t ret = read_func(buf, 0x44, mpu_addr, 6);
+        esp_err_t ret = read_func(buf, 0x43, mpu_addr, 6);
         if (ret != ESP_OK) {
             printf("❌ failed Update_gyro function\n");
         }
@@ -227,7 +227,12 @@ private:
         static constexpr float scale[] = {131, 65.5, 32.8, 16.4};
         int r = get_gyro_range();
         gyro.set_raw({x, y, z});
-        gyro.set_scaled({x / scale[r], y / scale[r], z / scale[r]});
+        constexpr float deg_to_rad = M_PI / 180.0f;
+        gyro.set_scaled({
+            x / scale[r] * deg_to_rad,
+            y / scale[r] * deg_to_rad,
+            z / scale[r] * deg_to_rad
+        });
     }
 
 };
