@@ -167,6 +167,43 @@ public:
         return value;
     }
 
+    void calibrate_gyro(int samples = 100) {
+        std::array<float, 3> sum = {0, 0, 0};
+        for (int i = 0; i < samples; ++i) {
+            update_gyro();
+            auto s = gyro.get_scaled();
+            for (int j = 0; j < 3; ++j)
+                sum[j] += s[j];
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
+        std::array<float, 3> offset;
+        for (int j = 0; j < 3; ++j)
+            offset[j] = sum[j] / samples;
+        gyro.set_offset(offset);
+        printf("[INFO] Gyro calibrated: offset = %.3f %.3f %.3f\n", offset[0], offset[1], offset[2]);
+    }
+
+    void calibrate_accel(int samples = 100) {
+        std::array<float, 3> sum = {0, 0, 0};
+        for (int i = 0; i < samples; ++i) {
+            update_accel();
+            auto s = accel.get_scaled();
+            for (int j = 0; j < 3; ++j)
+                sum[j] += s[j];
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
+
+        std::array<float, 3> offset;
+        for (int j = 0; j < 3; ++j)
+            offset[j] = sum[j] / samples;
+
+        // если по Z ожидаем 1g, то вычтем его (чтобы Z после калибровки стал ≈0)
+        offset[2] -= 1.0f;
+
+        accel.set_offset(offset);
+        printf("[INFO] Accel calibrated: offset = %.3f %.3f %.3f\n", offset[0], offset[1], offset[2]);
+    }
+
 private:
     uint8_t mpu_addr;
 
@@ -179,13 +216,9 @@ private:
         if (ret != ESP_OK) {
             printf("[INFO] failed Update_accel function\n");
         }
-        // int16_t x = (buf[0] << 8) | buf[1];
-        // int16_t y = (buf[2] << 8) | buf[3];
-        // int16_t z = (buf[4] << 8) | buf[5];
         int16_t x = bytes_to_int(buf[1], buf[0]);
         int16_t y = bytes_to_int(buf[3], buf[2]);
         int16_t z = bytes_to_int(buf[5], buf[4]);
-        // printf("[accel] x: %d, y: %d, z: %d\n", x, y, z);
         static constexpr float scale[] = {16384, 8192, 4096, 2048};
         int r = get_accel_range();
         accel.set_raw({x, y, z});
@@ -198,9 +231,6 @@ private:
         if (ret != ESP_OK) {
             printf("[INFO] failed Update_gyro function\n");
         }
-        // int16_t x = (buf[0] << 8) | buf[1];
-        // int16_t y = (buf[2] << 8) | buf[3];
-        // int16_t z = (buf[4] << 8) | buf[5];
         int16_t x = bytes_to_int(buf[1], buf[0]);
         int16_t y = bytes_to_int(buf[3], buf[2]);
         int16_t z = bytes_to_int(buf[5], buf[4]);

@@ -98,6 +98,19 @@ public:
         _vector = scaled_values;
     }
 
+    void set_offset(const std::array<float, 3>& offset) {
+        cal = offset;
+    }
+
+    std::array<float, 3> get_scaled() {
+        update();
+        return {
+            (_vector[_transpose[0]] - cal[_transpose[0]]) * _scale[0],
+            (_vector[_transpose[1]] - cal[_transpose[1]]) * _scale[1],
+            (_vector[_transpose[2]] - cal[_transpose[2]]) * _scale[2]
+        };
+    }
+
     std::array<float, 3> _vector;   // public for direct access by update function
     std::array<int, 3> _ivector;
     UpdateFunc update;

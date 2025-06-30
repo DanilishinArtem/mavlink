@@ -53,7 +53,9 @@ public:
             ESP_LOGE("FlightController", "I2C driver install failed: %s", esp_err_to_name(ret));
             return ret;
         }
-
+        mpu.wake();
+        mpu.calibrate_accel(1000);
+        mpu.calibrate_gyro(1000);
         // Подождать инициализации сенсора
         vTaskDelay(pdMS_TO_TICKS(1000));
         return ESP_OK;

@@ -12,5 +12,6 @@ extern "C" void app_main()
     while (true) {
         bridge.fc.update();
         bridge.send_attitude();
+        // vTaskDelay(pdMS_TO_TICKS(50));
     }
 }
