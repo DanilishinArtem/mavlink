@@ -3,11 +3,23 @@
 
 #pragma once
 
-#include "driver/uart.h"
+#include <string>
+#include <tuple>
+#include <cstring>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+
 #include "esp_timer.h"
+#include "esp_wifi.h"
+#include "esp_event.h"
+#include "esp_netif.h"
+#include "nvs_flash.h"
+
+#include "driver/uart.h"
 #include "FlightController.h"
 #include "mavlink/common/mavlink.h"
-#include <string>
 
 #define WIFI_SSID "ESP32-MAV"
 #define WIFI_PASS "12345678"

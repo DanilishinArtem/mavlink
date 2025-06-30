@@ -1,9 +1,4 @@
 #include <iostream>
-#include "wifi.h"
-#include "server.h"
-#include "hartbeat.h"
-
-// #include "mpu.h"
 #include "FlightController.h"
 #include "MAVLinkBridge.h"
 
