@@ -7,89 +7,123 @@
 #include "esp_timer.h"
 #include "FlightController.h"
 #include "mavlink/common/mavlink.h"
+#include <string>
 
-#define UART_PORT UART_NUM_1
-#define BUF_SIZE (1024)
+#define WIFI_SSID "ESP32-MAV"
+#define WIFI_PASS "12345678"
 
-class MAVLinkBridge {
+class MAVLinkBridge{
 public:
     FlightController& fc;
-
+    int sock;
+    sockaddr_in dest_addr;
     MAVLinkBridge(FlightController& fc) : fc(fc) {
-        uart_config_t uart_config = {
-            .baud_rate = 57600,
-            .data_bits = UART_DATA_8_BITS,
-            .parity    = UART_PARITY_DISABLE,
-            .stop_bits = UART_STOP_BITS_1,
-            .flow_ctrl = UART_HW_FLOWCTRL_DISABLE
-        };
-        uart_param_config(UART_PORT, &uart_config);
-        uart_set_pin(UART_PORT, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
-        uart_driver_install(UART_PORT, BUF_SIZE * 2, 0, 0, NULL, 0);
+        fc.init();
+        nvs_flash_init();
+        // setting up wifi point ...
+        esp_netif_init();
+        esp_event_loop_create_default();
+        esp_netif_create_default_wifi_ap();
+        
+        wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+        esp_wifi_init(&cfg);
+        
+        wifi_config_t wifi_config = {};
+        strcpy((char*)wifi_config.ap.ssid, WIFI_SSID);
+        wifi_config.ap.ssid_len = strlen(WIFI_SSID);
+        strcpy((char*)wifi_config.ap.password, WIFI_PASS);
+        wifi_config.ap.max_connection = 1;
+        wifi_config.ap.authmode = WIFI_AUTH_WPA_WPA2_PSK;
+
+        esp_wifi_set_mode(WIFI_MODE_AP);
+        esp_wifi_set_config(WIFI_IF_AP, &wifi_config);
+        esp_wifi_start();
+        xTaskCreate(&MAVLinkBridge::udp_mavlink_server_task, "mavlink_recv", 4096, this, 5, NULL);
+        xTaskCreate(&MAVLinkBridge::send_heartbeat_task_wrapper, "heartbeat_task", 4096, this, 5, NULL);
+        // socket initialization ...
+        sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
+        dest_addr.sin_family = AF_INET;
+        dest_addr.sin_port = htons(14550);
+        dest_addr.sin_addr.s_addr = inet_addr("192.168.4.2");
     }
 
-    void heartbeat() {
-        mavlink_heartbeat_t hb = {
-            .type = MAV_TYPE_QUADROTOR,
-            .autopilot = MAV_AUTOPILOT_GENERIC,
-            .base_mode = MAV_MODE_MANUAL_ARMED,
-            .system_status = MAV_STATE_ACTIVE,
-            .mavlink_version = 3
-        };
+    static void udp_mavlink_server_task(void* param) {
+        static_cast<MAVLinkBridge*>(param)->udp_mavlink_server();
+    }
 
+    static void send_heartbeat_task_wrapper(void* param) {
+        static_cast<MAVLinkBridge*>(param)->send_heartbeat_task();
+    }
+
+    void send_heartbeat_task(){
         mavlink_message_t msg;
-        uint8_t buf[MAVLINK_MAX_PACKET_LEN];
+        uint8_t buf[300];
 
-        mavlink_msg_heartbeat_encode(1, 200, &msg, &hb);
-        uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
-        uart_write_bytes(UART_PORT, buf, len);
+        while (true) {
+            mavlink_msg_heartbeat_pack(
+                1,
+                1,           // component_id (меняем на 1 — autopilot)
+                &msg,
+                MAV_TYPE_QUADROTOR,
+                MAV_AUTOPILOT_GENERIC,
+                MAV_MODE_MANUAL_ARMED,
+                0,
+                MAV_STATE_ACTIVE
+            );
+            uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
+            sendto(sock, buf, len, 0, (struct sockaddr*)&dest_addr, sizeof(dest_addr));
+            printf("Sent heartbeat\n");
+            vTaskDelay(pdMS_TO_TICKS(1000));
+        }
+    }
+
+    void udp_mavlink_server(){
+        int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
+
+        sockaddr_in addr;
+        addr.sin_addr.s_addr = htonl(INADDR_ANY);
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(14550);
+
+        bind(sock, (struct sockaddr*)&addr, sizeof(addr));
+
+        uint8_t rx_buf[128];
+        while (1) {
+            sockaddr_in source_addr;
+            socklen_t socklen = sizeof(source_addr);
+            int len = recvfrom(sock, rx_buf, sizeof(rx_buf) - 1, 0,
+                            (struct sockaddr *)&source_addr, &socklen);
+
+            if (len > 0) {
+                printf("Message recieved from qmavlink...\n");
+                // Тут ты можешь парсить MAVLink, например:
+                // mavlink_message_t msg;
+                // mavlink_parse_char(MAVLINK_COMM_0, rx_buf[i], &msg, &status);
+            }
+        }
     }
 
     void send_attitude() {
-        auto [roll, pitch, yaw] = fc.getEuler();
-        uint32_t time = (uint32_t)(esp_timer_get_time() / 1000);
-        float roll_ = roll * float(M_PI) / 180.0f;
-        float pitch_ = pitch * float(M_PI) / 180.0f;
-        float yaw_ = yaw * float(M_PI) / 180.0f;
-        printf("roll: %.4f, pitch: %.4f, yaw: %.4f\n", roll_, pitch_, yaw_);
+        float roll, pitch, yaw;
+        std::tie(roll, pitch, yaw) = fc.getEuler();  // В радианах
 
-        mavlink_attitude_t att = {
-            .time_boot_ms = (uint32_t)(esp_timer_get_time() / 1000),
-            .roll = roll * float(M_PI) / 180.0f,
-            .pitch = pitch * float(M_PI) / 180.0f,
-            .yaw = yaw * float(M_PI) / 180.0f,
-            .rollspeed = 0,
-            .pitchspeed = 0,
-            .yawspeed = 0
+        mavlink_attitude_t att_msg = {
+            .time_boot_ms = static_cast<uint32_t>(esp_timer_get_time() / 1000),
+            .roll = roll * static_cast<float>(M_PI) / 180.0f,
+            .pitch = pitch * static_cast<float>(M_PI) / 180.0f,
+            .yaw = yaw * static_cast<float>(M_PI) / 180.0f,
+            .rollspeed = 0.0f,
+            .pitchspeed = 0.0f,
+            .yawspeed = 0.0f
         };
 
         mavlink_message_t msg;
         uint8_t buf[MAVLINK_MAX_PACKET_LEN];
-        mavlink_msg_attitude_encode(1, 200, &msg, &att);
+        mavlink_msg_attitude_encode(1, 1, &msg, &att_msg);
         uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
-        uart_write_bytes(UART_PORT, buf, len);
-    }
 
-    void receive() {
-        uint8_t rx_buf[256];
-        int len = uart_read_bytes(UART_PORT, rx_buf, sizeof(rx_buf), 10 / portTICK_PERIOD_MS);
-        if (len <= 0) return;
-
-        mavlink_message_t msg;
-        mavlink_status_t status;
-
-        for (int i = 0; i < len; ++i) {
-            if (mavlink_parse_char(MAVLINK_COMM_0, rx_buf[i], &msg, &status)) {
-                // Обработка входящих сообщений по необходимости
-                switch (msg.msgid) {
-                    case MAVLINK_MSG_ID_HEARTBEAT:
-                        printf("💡 Received HEARTBEAT\n");
-                        break;
-                    default:
-                        break;
-                }
-            }
-        }
+        sendto(sock, buf, len, 0, (struct sockaddr*)&dest_addr, sizeof(dest_addr));
+        printf("Sent attitude: roll=%.2f pitch=%.2f yaw=%.2f\n", roll, pitch, yaw);
     }
 };
 
