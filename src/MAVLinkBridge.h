@@ -52,6 +52,7 @@ public:
         esp_wifi_start();
         xTaskCreate(&MAVLinkBridge::udp_mavlink_server_task, "mavlink_recv", 4096, this, 5, NULL);
         xTaskCreate(&MAVLinkBridge::send_heartbeat_task_wrapper, "heartbeat_task", 4096, this, 5, NULL);
+        xTaskCreate(&MAVLinkBridge::send_sys_status_wrapper, "sys_status", 4096, this, 5, NULL);
         // socket initialization ...
         sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
         dest_addr.sin_family = AF_INET;
@@ -65,6 +66,10 @@ public:
 
     static void send_heartbeat_task_wrapper(void* param) {
         static_cast<MAVLinkBridge*>(param)->send_heartbeat_task();
+    }
+
+    static void send_sys_status_wrapper(void* param) {
+        static_cast<MAVLinkBridge*>(param)->send_sys_status();
     }
 
     void send_heartbeat_task(){
@@ -85,6 +90,42 @@ public:
             uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
             sendto(sock, buf, len, 0, (struct sockaddr*)&dest_addr, sizeof(dest_addr));
             // printf("Sent heartbeat\n");
+            vTaskDelay(pdMS_TO_TICKS(1000));
+        }
+    }
+
+    void send_sys_status() {
+        mavlink_message_t msg;
+        uint8_t buf[MAVLINK_MAX_PACKET_LEN];
+        while(true){
+            mavlink_msg_sys_status_pack(
+                1, 1, &msg,
+                // onboard_control_sensors_present
+                MAV_SYS_STATUS_SENSOR_3D_GYRO | MAV_SYS_STATUS_SENSOR_3D_ACCEL | MAV_SYS_STATUS_SENSOR_3D_MAG,
+                // onboard_control_sensors_enabled
+                MAV_SYS_STATUS_SENSOR_3D_GYRO | MAV_SYS_STATUS_SENSOR_3D_ACCEL | MAV_SYS_STATUS_SENSOR_3D_MAG,
+                // onboard_control_sensors_health
+                MAV_SYS_STATUS_SENSOR_3D_GYRO | MAV_SYS_STATUS_SENSOR_3D_ACCEL | MAV_SYS_STATUS_SENSOR_3D_MAG,
+                // load (0–10000 = 0–100%)
+                100,  
+                // voltage_battery (in mV)
+                12000,
+                // current_battery (in cA)
+                -1,
+                // battery_remaining (in %, -1 = unknown)
+                -1,
+                // drop_rate_comm
+                0,
+                // errors_comm
+                0,
+                // errors_count1..4
+                0, 0, 0, 0,
+                // extended present, enabled, health (MAVLink 2 only)
+                0, 0, 0
+            );
+            uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
+            sendto(sock, buf, len, 0, (struct sockaddr*)&dest_addr, sizeof(dest_addr));
+            printf("[HIMARK] system status sended...\n");
             vTaskDelay(pdMS_TO_TICKS(1000));
         }
     }
@@ -125,6 +166,18 @@ public:
             case MAVLINK_MSG_ID_MANUAL_CONTROL:
                 handle_manual_control(msg);
                 break;
+            case MAVLINK_MSG_ID_COMMAND_LONG:
+                printf("[HIMARK] COMMAND_LONG CASE...\n");
+                handle_command_long(msg);
+                break;
+            case MAVLINK_MSG_ID_PARAM_REQUEST_LIST:
+                printf("[HIMARK] PARAM_REQUEST_LIST CASE...\n");
+                handle_param_request_list(msg);
+                break;
+            case MAVLINK_MSG_ID_MISSION_REQUEST_LIST:
+                handle_mission_request_list(msg);
+                printf("[HIMARK] MISSION_REQUEST_LIST CASE...\n");
+                break;
             default:
                 break;
         }
@@ -141,6 +194,75 @@ public:
         rc.buttons = ctrl.buttons;
         printf("[INFO RC] roll: %d, pitch: %d, yaw: %d\n", rc.roll, rc.pitch, rc.yaw);
         fc.setRCInput(rc);
+    }
+
+    void handle_command_long(const mavlink_message_t& msg) {
+        mavlink_command_long_t cmd;
+        mavlink_msg_command_long_decode(&msg, &cmd);
+
+        if (cmd.command == MAV_CMD_REQUEST_MESSAGE && static_cast<uint32_t>(cmd.param1) == MAVLINK_MSG_ID_AUTOPILOT_VERSION) {
+            mavlink_message_t out_msg;
+            mavlink_autopilot_version_t version = {};
+            version.capabilities = MAV_PROTOCOL_CAPABILITY_MISSION_INT |
+                                MAV_PROTOCOL_CAPABILITY_PARAM_FLOAT |
+                                MAV_PROTOCOL_CAPABILITY_COMMAND_INT;
+            version.flight_sw_version = 0x01010101;
+            version.middleware_sw_version = 0x01010101;
+            version.os_sw_version = 0x01010101;
+            version.board_version = 0x00000001;
+            version.vendor_id = 42;
+            version.product_id = 0;
+            version.uid = 12345678;
+
+            mavlink_msg_autopilot_version_encode(1, 1, &out_msg, &version);
+            uint8_t buf[MAVLINK_MAX_PACKET_LEN];
+            uint16_t len = mavlink_msg_to_send_buffer(buf, &out_msg);
+            sendto(sock, buf, len, 0, (struct sockaddr*)&dest_addr, sizeof(dest_addr));
+            printf("Ответил на AUTOPILOT_VERSION\n");
+        }
+    }
+
+    void handle_param_request_list(const mavlink_message_t& msg) {
+        mavlink_param_request_list_t req;
+        mavlink_msg_param_request_list_decode(&msg, &req);
+
+        // Пример одного параметра — можно сделать массив, если нужно больше
+        const char* param_id = "TEST_PARAM";
+        float param_value = 42.0f;
+        uint8_t param_type = MAV_PARAM_TYPE_REAL32;
+
+        mavlink_message_t out_msg;
+        mavlink_msg_param_value_pack(
+            1, 1, &out_msg,
+            param_id, param_value, param_type,
+            1,  // total param count
+            0   // index of this param
+        );
+
+        uint8_t buf[MAVLINK_MAX_PACKET_LEN];
+        uint16_t len = mavlink_msg_to_send_buffer(buf, &out_msg);
+        sendto(sock, buf, len, 0, (struct sockaddr*)&dest_addr, sizeof(dest_addr));
+        printf("Ответил на PARAM_REQUEST_LIST\n");
+    }
+
+    void handle_mission_request_list(const mavlink_message_t& msg) {
+        mavlink_mission_request_list_t req;
+        mavlink_msg_mission_request_list_decode(&msg, &req);
+
+        mavlink_message_t out_msg;
+        mavlink_msg_mission_count_pack(
+            1, 1, &out_msg,
+            req.target_system,
+            req.target_component,
+            0,             // count = 0
+            MAV_MISSION_TYPE_MISSION, // тип миссии (обычно MISSION)
+            0              // opaque_id = 0
+        );
+
+        uint8_t buf[MAVLINK_MAX_PACKET_LEN];
+        uint16_t len = mavlink_msg_to_send_buffer(buf, &out_msg);
+        sendto(sock, buf, len, 0, (struct sockaddr*)&dest_addr, sizeof(dest_addr));
+        printf("Ответил на MISSION_REQUEST_LIST (0 missions)\n");
     }
 
     void send_attitude() {
