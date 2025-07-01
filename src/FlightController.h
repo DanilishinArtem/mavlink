@@ -8,6 +8,7 @@
 #include "esp_timer.h"
 #include "driver/i2c.h"
 #include "esp_log.h"
+#include "esc_control.h"
 
 #define I2C_MASTER_NUM I2C_NUM_0
 #define I2C_MASTER_SDA_IO 9
@@ -30,6 +31,7 @@ public:
     MadgwickFilter filter;
     uint64_t last_time_us = 0;
     bool mag_ready = false;
+    bool esc_ready = false;
 
     struct SensorData {
         float ax, ay, az;
@@ -63,10 +65,13 @@ public:
             return ret;
         }
         mpu.wake();
-        mpu.calibrate_accel(1000);
-        mpu.calibrate_gyro(1000);
+        mpu.calibrate_accel(100);
+        mpu.calibrate_gyro(100);
         // Подождать инициализации сенсора
+        // vTaskDelay(pdMS_TO_TICKS(1000));
+        // esc_init();
         vTaskDelay(pdMS_TO_TICKS(1000));
+        esc_ready = true;
         return ESP_OK;
     }
 
@@ -107,6 +112,14 @@ public:
 
     const RCInput& getRCInput() const {
         return rc;
+    }
+
+    void updateESC() {
+        if (!esc_ready) return;
+        float throttle_norm = rc.throttle / 1000.0f;
+        if (throttle_norm > 1.0f) throttle_norm = 1.0f;
+        if (throttle_norm < -1.0f) throttle_norm = -1.0f;
+        esc_set_speed(throttle_norm);
     }
 
 private:

@@ -53,6 +53,7 @@ public:
         xTaskCreate(&MAVLinkBridge::udp_mavlink_server_task, "mavlink_recv", 4096, this, 5, NULL);
         xTaskCreate(&MAVLinkBridge::send_heartbeat_task_wrapper, "heartbeat_task", 4096, this, 5, NULL);
         xTaskCreate(&MAVLinkBridge::send_sys_status_wrapper, "sys_status", 4096, this, 5, NULL);
+        xTaskCreate(&MAVLinkBridge::rotter_update_loop_wrapper, "rotter_update_loop", 4096, this, 5, NULL);
         // socket initialization ...
         sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
         dest_addr.sin_family = AF_INET;
@@ -70,6 +71,10 @@ public:
 
     static void send_sys_status_wrapper(void* param) {
         static_cast<MAVLinkBridge*>(param)->send_sys_status();
+    }
+
+    static void rotter_update_loop_wrapper(void* param) {
+        static_cast<MAVLinkBridge*>(param)->rotter_update_loop();
     }
 
     void send_heartbeat_task(){
@@ -161,6 +166,18 @@ public:
         }
     }
 
+    void rotter_update_loop() {
+        // ждём инициализации ESC
+        while (!fc.esc_ready) {
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
+        // и запускаем PWM
+        while (true) {
+            fc.updateESC();
+            vTaskDelay(pdMS_TO_TICKS(50));
+        }
+    }
+
     void handle_mavlink_message(const mavlink_message_t& msg) {
         switch (msg.msgid) {
             case MAVLINK_MSG_ID_MANUAL_CONTROL:
@@ -192,7 +209,7 @@ public:
         rc.throttle = ctrl.z;
         rc.yaw = ctrl.r;
         rc.buttons = ctrl.buttons;
-        printf("[INFO RC] roll: %d, pitch: %d, yaw: %d\n", rc.roll, rc.pitch, rc.yaw);
+        printf("[INFO RC] roll: %d, pitch: %d, yaw: %d, throttle: %d\n", rc.roll, rc.pitch, rc.yaw, rc.throttle);
         fc.setRCInput(rc);
     }
 
