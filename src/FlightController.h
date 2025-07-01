@@ -16,6 +16,14 @@
 #define I2C_MASTER_TX_BUF_DISABLE 0
 #define I2C_MASTER_RX_BUF_DISABLE 0
 
+struct RCInput {
+    int16_t roll = 0;     // стик X
+    int16_t pitch = 0;    // стик Y
+    int16_t throttle = 0; // газ
+    int16_t yaw = 0;      // поворот
+    uint16_t buttons = 0; // кнопки, если нужны
+};
+
 class FlightController {
 public:
     MPU9250 mpu;
@@ -92,6 +100,17 @@ public:
     const SensorData& getSensorData() const {
         return data;
     }
+
+    void setRCInput(const RCInput& input) {
+        rc = input;
+    }
+
+    const RCInput& getRCInput() const {
+        return rc;
+    }
+
+private:
+    RCInput rc;
 };
 
 #endif

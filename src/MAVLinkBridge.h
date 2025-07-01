@@ -84,35 +84,63 @@ public:
             );
             uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
             sendto(sock, buf, len, 0, (struct sockaddr*)&dest_addr, sizeof(dest_addr));
-            printf("Sent heartbeat\n");
+            // printf("Sent heartbeat\n");
             vTaskDelay(pdMS_TO_TICKS(1000));
         }
     }
 
     void udp_mavlink_server(){
-        int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
+        // int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
 
-        sockaddr_in addr;
-        addr.sin_addr.s_addr = htonl(INADDR_ANY);
-        addr.sin_family = AF_INET;
-        addr.sin_port = htons(14550);
+        // sockaddr_in addr;
+        // addr.sin_addr.s_addr = htonl(INADDR_ANY);
+        // addr.sin_family = AF_INET;
+        // addr.sin_port = htons(14550);
 
-        bind(sock, (struct sockaddr*)&addr, sizeof(addr));
+        // bind(sock, (struct sockaddr*)&addr, sizeof(addr));
+
 
         uint8_t rx_buf[128];
-        while (1) {
+        mavlink_message_t msg;
+        mavlink_status_t status;
+
+        while (true) {
             sockaddr_in source_addr;
             socklen_t socklen = sizeof(source_addr);
-            int len = recvfrom(sock, rx_buf, sizeof(rx_buf) - 1, 0,
+            int len = recvfrom(sock, rx_buf, sizeof(rx_buf), 0,
                             (struct sockaddr *)&source_addr, &socklen);
 
             if (len > 0) {
-                printf("Message recieved from qmavlink...\n");
-                // Тут ты можешь парсить MAVLink, например:
-                // mavlink_message_t msg;
-                // mavlink_parse_char(MAVLINK_COMM_0, rx_buf[i], &msg, &status);
+                for (int i = 0; i < len; ++i) {
+                    if (mavlink_parse_char(MAVLINK_COMM_0, rx_buf[i], &msg, &status)) {
+                        handle_mavlink_message(msg);
+                    }
+                }
             }
         }
+    }
+
+    void handle_mavlink_message(const mavlink_message_t& msg) {
+        switch (msg.msgid) {
+            case MAVLINK_MSG_ID_MANUAL_CONTROL:
+                handle_manual_control(msg);
+                break;
+            default:
+                break;
+        }
+    }
+
+    void handle_manual_control(const mavlink_message_t& msg) {
+        mavlink_manual_control_t ctrl;
+        mavlink_msg_manual_control_decode(&msg, &ctrl);
+        RCInput rc;
+        rc.roll = ctrl.x;
+        rc.pitch = ctrl.y;
+        rc.throttle = ctrl.z;
+        rc.yaw = ctrl.r;
+        rc.buttons = ctrl.buttons;
+        printf("[INFO RC] roll: %d, pitch: %d, yaw: %d\n", rc.roll, rc.pitch, rc.yaw);
+        fc.setRCInput(rc);
     }
 
     void send_attitude() {
@@ -135,7 +163,7 @@ public:
         uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
 
         sendto(sock, buf, len, 0, (struct sockaddr*)&dest_addr, sizeof(dest_addr));
-        printf("Sent attitude: roll=%.2f pitch=%.2f yaw=%.2f\n", roll, pitch, yaw);
+        // printf("Sent attitude: roll=%.2f pitch=%.2f yaw=%.2f\n", roll, pitch, yaw);
     }
 };
 
