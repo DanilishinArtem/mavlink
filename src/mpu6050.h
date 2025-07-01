@@ -168,6 +168,7 @@ public:
     }
 
     void calibrate_gyro(int samples = 100) {
+        printf("[INFO] Start of calibration of the gyroscope...\n");
         std::array<float, 3> sum = {0, 0, 0};
         for (int i = 0; i < samples; ++i) {
             update_gyro();
@@ -184,6 +185,7 @@ public:
     }
 
     void calibrate_accel(int samples = 100) {
+        printf("[INFO] Start of calibration of the accelerometer...\n");
         std::array<float, 3> sum = {0, 0, 0};
         for (int i = 0; i < samples; ++i) {
             update_accel();

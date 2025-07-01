@@ -21,6 +21,7 @@ public:
     MPU9250 mpu;
     MadgwickFilter filter;
     uint64_t last_time_us = 0;
+    bool mag_ready = false;
 
     struct SensorData {
         float ax, ay, az;
@@ -28,8 +29,8 @@ public:
         float mx, my, mz;
         float dt;
     } data;
-
-    FlightController() : filter(0.6045997880780726) {}
+    // 0.6045997880780726
+    FlightController() : filter(0.05f) {}
 
     esp_err_t init() {
         i2c_config_t conf = {};
@@ -75,12 +76,12 @@ public:
         data.mz = mpu.get_mag().z();
 
         uint64_t now = esp_timer_get_time();
-        data.dt = (last_time_us == 0) ? 0.0001f : (now - last_time_us) / 1e6f;
+        data.dt = (last_time_us == 0) ? 0.0000f : (now - last_time_us) / 1e6f;
         last_time_us = now;
 
         filter.update(data.ax, data.ay, data.az,
                       data.gx, data.gy, data.gz,
-                      data.mx, data.my, data.mz,
+                      0, 0, 0,
                       data.dt);
     }
 
